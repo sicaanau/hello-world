@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Type Motion</title>
+<style>
+  :root { --blue: #1238ff; --navy: #0b1a5c; --ghost: #d9d9de; --bg: #ffffff; }
+  html, body { margin: 0; height: 100%; background: #111; }
+  #stage { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: var(--bg);
+           font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; }
+  .line { position: absolute; left: 4%; white-space: pre; color: var(--blue); font-size: 15vw; visibility: hidden;
+          line-height: 1; letter-spacing: -0.01em; will-change: transform, filter; }
+  .line span.g { color: var(--ghost); }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  #s3 { position: absolute; inset: 0; background: var(--blue); display: none; }
+  #s3 .ch { position: absolute; top: 0; left: 0; color: #fff; font: 700 11.5vw/1 Georgia, "Times New Roman", serif;
+            transform-origin: 50% 70%; will-change: transform; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="s1"></div>
+  <div id="s2"></div>
+  <svg id="ink"><path id="stroke" fill="none" stroke="var(--navy)" stroke-width="2.2" stroke-linecap="round"/></svg>
+  <div id="s3"></div>
+  <svg id="ink3"><path id="wave" fill="none" stroke="var(--navy)" stroke-width="2.6" stroke-linecap="round"/></svg>
+</div>
+<script>
+// Everything is a pure function of t (seconds since load), so the clip is deterministic.
+const $ = (id) => document.getElementById(id);
+const stage = $("stage"), W = () => stage.clientWidth, H = () => stage.clientHeight;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+const easeIn = (x) => x * x * x;
+const easeInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const GLYPHS = "&*_@\\-%+!/)$<^0]";
+const hash = (a, b) => { let h = (a * 374761393 + b * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; };
+
+// ── scene 1: scramble-decode, block vertically centred, then slides out left
+const S1 = [
+  { text: "There’s",    appear: -1,  from: 0.74, to: 0.80, keep: [1,2,4,5,6] },
+  { text: "nothing",    appear: 0.68, from: 0.78, to: 1.18 },
+  { text: "artificial", appear: 1.26, from: 1.38, to: 1.82 },
+];
+const s1 = $("s1");
+const s1Lines = S1.map(() => { const d = document.createElement("div"); d.className = "line"; s1.appendChild(d); return d; });
+
+function scramble(line, t, idx) {
+  const n = line.text.length;
+  let html = "";
+  for (let i = 0; i < n; i++) {
+    const resolveAt = line.from + (line.to - line.from) * (hash(idx, i) % 1000) / 1000;
+    const ch = line.text[i];
+    if (t >= resolveAt || (line.keep && line.keep.includes(i))) html += ch;
+    else html += `<span class="g">${GLYPHS[hash(i + idx * 31, 7) % GLYPHS.length].replace("<", "&lt;")}</span>`;
+  }
+  return html;
+}
+
+// ── scene 2: lines fly in from the right with blur, top line anchored
+const S2 = [
+  { text: "about",        at: 2.42 },
+  { text: "investing",    at: 2.8 },
+  { text: "in your most", at: 3.3 },
+];
+const s2 = $("s2");
+const s2Lines = S2.map((l) => { const d = document.createElement("div"); d.className = "line"; d.textContent = l.text; s2.appendChild(d); return d; });
+
+// ── scene 3: serif word on blue, wave passes under, letters ride the wave and roll away
+const WORD = "human skills.";
+const s3 = $("s3");
+const chars = [...WORD].map((c) => { const s = document.createElement("span"); s.className = "ch"; s.textContent = c === " " ? "\u00a0" : c; s3.appendChild(s); return s; });
+let widths = null;
+
+function render(t) {
+  const w = W(), h = H(), lh = 0.145 * h;
+
+  // scene 1
+  const visible = S1.filter((l) => t >= l.appear).length;
+  const exit = easeIn(prog(t, 2.2, 2.5));
+  // block centre at 0.57h; smooth the re-centre when a line is added
+  let shift = 0;
+  S1.forEach((l, i) => { if (i > 0) shift += easeOut(prog(t, l.appear, l.appear + 0.12)) * lh / 2; });
+  s1.style.display = t < 2.52 ? "" : "none";
+  s1Lines.forEach((el, i) => {
+    const l = S1[i];
+    el.style.visibility = t >= l.appear ? "visible" : "hidden";
+    el.innerHTML = scramble(l, t, i);
+    const y = 0.62 * h - lh / 2 - shift + i * lh;
+    el.style.transform = `translate(${-exit * 1.15 * w}px, ${y}px)`;
+  });
+
+  // scene 2
+  s2.style.display = t >= 2.42 && t < 4.25 ? "" : "none";
+  s2Lines.forEach((el, i) => {
+    const p = easeOut(prog(t, S2[i].at, S2[i].at + (i == 2 ? 0.5 : 0.3)));
+    el.style.visibility = t >= S2[i].at ? "visible" : "hidden";
+    const x = (1 - p) * 0.55 * w - p * 0.005 * w;
+    el.style.transform = `translate(${x}px, ${0.37 * h + i * lh}px)`;
+    el.style.filter = `blur(${(1 - p) * 6}px)`;
+    el.style.opacity = 0.35 + 0.65 * p;
+    el.style.color = p < 1 ? `color-mix(in srgb, var(--blue) ${Math.round(p * 100)}%, #bbbbc4)` : "";
+  });
+
+  // the pen stroke over "in your most"
+  const stroke = $("stroke");
+  const sx = 0.36 * w, sy = 0.79 * h, ex = 1.05 * w, ey = 0.5 * h;
+  stroke.setAttribute("d", `M${sx},${sy} Q${0.55 * w},${0.55 * h} ${ex},${ey}`);
+  const L = stroke.getTotalLength();
+  const head = easeOut(prog(t, 3.55, 3.78)), tail = easeInOut(prog(t, 3.78, 4.02));
+  stroke.style.strokeDasharray = `${Math.max(0, (head - tail) * L)} ${L}`;
+  stroke.style.strokeDashoffset = `${-tail * L}`;
+  stroke.style.display = t >= 3.55 && t < 4.05 ? "" : "none";
+
+  // scene 3
+  const on3 = t >= 4.25;
+  s3.style.display = on3 ? "block" : "none";
+  $("ink3").style.display = on3 ? "" : "none";
+  if (on3) {
+    if (!widths) widths = chars.map((c) => c.getBoundingClientRect().width);
+    const total = widths.reduce((a, b) => a + b, 0);
+    const baseY = 0.37 * h, x0 = (w - total) / 2;
+
+    // wave under the word: draws in from the left, travels right, leaves
+    const waveY = 0.47 * h, amp = 0.012 * h, k = (2 * Math.PI) / (0.9 * w), phase = t * 4;
+    const waveHead = easeOut(prog(t, 4.3, 4.75)) * 1.1 * w;
+    const waveTail = easeIn(prog(t, 4.75, 5.05)) * 1.1 * w;
+    let d = "";
+    for (let x = waveTail; x <= waveHead; x += 6) d += (d ? "L" : "M") + `${x},${waveY + amp * Math.sin(k * x - phase)}`;
+    $("wave").setAttribute("d", d);
+
+    // letters: ride a sine (grows 4.45→5.2), then roll around a pivot to the lower right and drop away
+    const warp = easeInOut(prog(t, 4.45, 5.1));
+    const roll = easeIn(prog(t, 5.1, 5.8));
+    const pivotX = 0.95 * w, pivotY = 1.05 * h;
+    let cx = x0;
+    chars.forEach((c, i) => {
+      const cw = widths[i], mx = cx + cw / 2; cx += cw;
+      const wy = warp * 0.025 * h * Math.sin(k * 1.3 * mx - t * 5);
+      const wr = warp * 12 * Math.cos(k * 1.3 * mx - t * 5);
+      // rotate the letter's position around the pivot; letters on the left go first
+      const lag = (mx - x0) / total;
+      const a = roll * (1.6 - 0.9 * lag);
+      const rx = mx - pivotX, ry = baseY + wy - pivotY;
+      const px = pivotX + rx * Math.cos(a) - ry * Math.sin(a);
+      const py = pivotY + rx * Math.sin(a) + ry * Math.cos(a);
+      const deg = wr + (a * 180) / Math.PI;
+      c.style.transform = `translate(${px - cw / 2}px, ${py - 0.5 * c.offsetHeight}px) rotate(${deg}deg)`;
+      c.style.opacity = clamp(1 - (roll * (1.6 - 0.9 * lag) - 0.8) * 2.5);
+    });
+  }
+}
+
+const start = performance.now();
+render(0);
+function loop(now) { render((now - start) / 1000); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
